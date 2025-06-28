@@ -52,7 +52,6 @@ mongoose.connection.on('error', (err) => console.error('MongoDB error:', err));
 // Configure storage for uploaded images
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    // Create uploads directory if it doesn't exist
     const uploadDir = 'uploads/';
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
@@ -965,6 +964,175 @@ app.get('/api/debug/quiz-times/:id', async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+// Add this route with your other result routes
+// Get detailed quiz result (with correct answers)
+app.get('/api/results/:id/details', authenticate, authorize(['student']), async (req, res) => {
+    try {
+        const resultId = req.params.id;
+        
+        const result = await QuizResult.findById(resultId)
+            .populate('quiz')
+            .populate('user', 'name rollNumber');
+        
+        if (!result) {
+            return res.status(404).json({ 
+                success: false, 
+                message: 'Result not found' 
+            });
+        }
+
+        // Verify the requesting user owns this result
+        if (result.user._id.toString() !== req.user._id) {
+            return res.status(403).json({ 
+                success: false, 
+                message: 'Not authorized to view this result' 
+            });
+        }
+
+        const quiz = await Quiz.findById(result.quiz._id);
+        const now = new Date();
+        
+        // Only allow access after quiz end time
+        if (now < quiz.endTime) {
+            return res.status(403).json({ 
+                success: false, 
+                message: 'Quiz results are only available after the quiz has ended' 
+            });
+        }
+
+        res.json({
+            success: true,
+            result: {
+                ...result.toObject(),
+                quiz: {
+                    ...quiz.toObject(),
+                    questions: quiz.questions.map(q => ({
+                        questionText: q.questionText,
+                        imageUrl: q.imageUrl,
+                        options: q.options,
+                        correctAnswer: q.correctAnswer,
+                        points: q.points
+                    }))
+                }
+            }
+        });
+    } catch (err) {
+        console.error('Error fetching result details:', err);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Failed to fetch result details',
+            error: err.message 
+        });
+    }
+});
+// Profile update route
+app.put('/api/users/profile', authenticate, async (req, res) => {
+  try {
+    const { name, rollNumber, currentPassword, newPassword } = req.body;
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
+    }
+
+    // Verify current password if changing password
+    if (newPassword) {
+      const validPassword = await bcrypt.compare(currentPassword, user.password);
+      if (!validPassword) {
+        return res.status(401).json({ 
+          success: false, 
+          message: 'Current password is incorrect' 
+        });
+      }
+      
+      // Update password if new password provided
+      const salt = await bcrypt.genSalt(10);
+      user.password = await bcrypt.hash(newPassword, salt);
+    }
+
+    // Update user details
+    user.name = name;
+    user.rollNumber = rollNumber;
+
+    await user.save();
+
+    // Generate new token if password changed
+    const token = jwt.sign(
+      { 
+        _id: user._id, 
+        role: user.role, 
+        name: user.name,
+        department: user.department,
+        batch: user.batch
+      },
+      process.env.JWT_SECRET || 'quizappsecret',
+      { expiresIn: '1h' }
+    );
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      token: newPassword ? token : undefined, // Return new token only if password changed
+      user: {
+        _id: user._id,
+        name: user.name,
+        rollNumber: user.rollNumber,
+        role: user.role,
+        department: user.department,
+        section: user.section,
+        batch: user.batch
+      }
+    });
+  } catch (err) {
+    console.error('Error updating profile:', err);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to update profile',
+      error: err.message 
+    });
+  }
+});
+// Add this with other user management routes
+app.put('/api/users/:id/password', authenticate, authorize(['admin']), async (req, res) => {
+    try {
+        const { newPassword } = req.body;
+        const userId = req.params.id;
+        
+        if (!newPassword || newPassword.length < 6) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'New password must be at least 6 characters long' 
+            });
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ 
+                success: false, 
+                message: 'User not found' 
+            });
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(newPassword, salt);
+        await user.save();
+
+        res.json({ 
+            success: true,
+            message: 'Password updated successfully'
+        });
+    } catch (err) {
+        console.error('Error updating password:', err);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Failed to update password',
+            error: err.message 
+        });
+    }
+});
 // Get results for a specific quiz
 app.get('/api/quizzes/:id/results', authenticate, authorize(['staff', 'admin']), async (req, res) => {
     try {
@@ -1027,4 +1195,57 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Access the API at http://localhost:${PORT}`);
+});
+// Add this route with the other user management routes
+app.post('/api/users/staff', authenticate, authorize(['admin']), async (req, res) => {
+    try {
+        const { name, rollNumber, password, department } = req.body;
+        
+        if (!name || !rollNumber || !password || !department) {
+            return res.status(400).json({ 
+                success: false,
+                message: 'Missing required fields: name, rollNumber, password, department' 
+            });
+        }
+
+        const existingUser = await User.findOne({ rollNumber });
+        if (existingUser) {
+            return res.status(409).json({ 
+                success: false,
+                message: 'User already exists with this roll number' 
+            });
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+
+        const user = new User({
+            name,
+            rollNumber,
+            password: hashedPassword,
+            role: 'staff',
+            department,
+            isApproved: true
+        });
+
+        await user.save();
+        
+        res.status(201).json({ 
+            success: true,
+            message: 'Staff account created successfully',
+            user: {
+                id: user._id,
+                name: user.name,
+                rollNumber: user.rollNumber,
+                department: user.department
+            }
+        });
+    } catch (err) {
+        console.error('Error creating staff account:', err);
+        res.status(500).json({ 
+            success: false,
+            message: 'Failed to create staff account',
+            error: err.message 
+        });
+    }
 });

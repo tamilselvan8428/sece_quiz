@@ -7,6 +7,7 @@ import AdminPanel from './components/AdminPanel'
 import StaffDashboard from './components/StaffDashboard'
 import StudentDashboard from './components/StudentDashboard'
 import Quiz from './components/Quiz'
+import QuizResultDetails from './components/QuizResultDetails' // Add this import
 import './App.css'
 
 // Set axios base URL
@@ -16,23 +17,24 @@ function App() {
   const [user, setUser] = useState(null)
   const navigate = useNavigate()
 
-useEffect(() => {
+  useEffect(() => {
     const validateToken = async () => {
-        const token = localStorage.getItem('token');
-        if (token) {
-            try {
-                const res = await axios.get('/api/validate', {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-                setUser(res.data.user);
-            } catch (err) {
-                localStorage.removeItem('token');
-                setUser(null);
-            }
+      const token = localStorage.getItem('token')
+      if (token) {
+        try {
+          const res = await axios.get('/api/validate', {
+            headers: { Authorization: `Bearer ${token}` }
+          })
+          setUser(res.data.user)
+        } catch (err) {
+          localStorage.removeItem('token')
+          setUser(null)
         }
-    };
-    validateToken();
-}, []);
+      }
+    }
+    validateToken()
+  }, [])
+
   const login = async (rollNumber, password) => {
     try {
       const res = await axios.post('/api/login', { rollNumber, password })
@@ -81,6 +83,8 @@ useEffect(() => {
         <Route path="/staff" element={user?.role === 'staff' ? <StaffDashboard user={user} logout={logout} /> : <Navigate to="/login" />} />
         <Route path="/student" element={user?.role === 'student' ? <StudentDashboard user={user} logout={logout} /> : <Navigate to="/login" />} />
         <Route path="/quiz/:id" element={user?.role === 'student' ? <Quiz user={user} /> : <Navigate to="/login" />} />
+        {/* Add this new route */}
+        <Route path="/quiz-result/:id" element={user?.role === 'student' ? <QuizResultDetails user={user} logout={logout} /> : <Navigate to="/login" />} />
         <Route path="/" element={<Navigate to={user ? `/${user.role}` : '/login'} />} />
       </Routes>
     </div>

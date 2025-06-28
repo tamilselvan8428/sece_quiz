@@ -43,7 +43,47 @@ const fetchAvailableQuizzes = async () => {
       console.error('Error fetching past results:', err);
     }
   };
+  // Add this new function to your component
+const viewQuizDetails = async (resultId, quizEndTime) => {
+  const now = new Date();
+  const endTime = new Date(quizEndTime);
+  
+  if (now < endTime) {
+    alert('Quiz details will be available after the quiz end time');
+    return;
+  }
+  
+  try {
+    const res = await axios.get(`/api/results/${resultId}/details`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+    });
+    
+    if (res.data.success) {
+      // Navigate to result details page or show modal
+      navigate(`/quiz-result/${resultId}`);
+    }
+  } catch (err) {
+    console.error('Error fetching result details:', err);
+    alert(err.response?.data?.message || 'Failed to load quiz details');
+  }
+};
 
+// In your results table:
+{pastResults.map(result => (
+  <tr key={result._id}>
+    <td>{result.quiz?.title || 'Unknown Quiz'}</td>
+    <td>{result.score}</td>
+    <td>{new Date(result.submittedAt).toLocaleString()}</td>
+    <td>
+      <button 
+        onClick={() => viewQuizDetails(result._id, result.quiz?.endTime)}
+        disabled={new Date() < new Date(result.quiz?.endTime)}
+      >
+        View Details
+      </button>
+    </td>
+  </tr>
+))}
   const startQuiz = (quizId) => {
     navigate(`/quiz/${quizId}`);
   };
@@ -93,23 +133,32 @@ const fetchAvailableQuizzes = async () => {
           <h2>Your Past Results</h2>
           {pastResults.length > 0 ? (
             <table className="results-table">
-              <thead>
-                <tr>
-                  <th>Quiz</th>
-                  <th>Score</th>
-                  <th>Submitted At</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pastResults.map(result => (
-                  <tr key={result._id}>
-                    <td>{result.quiz?.title || 'Unknown Quiz'}</td>
-                    <td>{result.score}</td>
-                    <td>{new Date(result.submittedAt).toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+  <thead>
+    <tr>
+      <th>Quiz</th>
+      <th>Score</th>
+      <th>Submitted At</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {pastResults.map(result => (
+      <tr key={result._id}>
+        <td>{result.quiz?.title || 'Unknown Quiz'}</td>
+        <td>{result.score}</td>
+        <td>{new Date(result.submittedAt).toLocaleString()}</td>
+        <td>
+          <button 
+            onClick={() => viewQuizDetails(result._id, result.quiz?.endTime)}
+            className="view-details-btn"
+          >
+            View Details
+          </button>
+        </td>
+      </tr>
+    ))}
+  </tbody>
+</table>
           ) : (
             <p>No quiz results yet</p>
           )}

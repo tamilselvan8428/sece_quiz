@@ -7,7 +7,6 @@ const Register = ({ register }) => {
     name: '',
     rollNumber: '',
     password: '',
-    role: 'student',
     department: '',
     section: '',
     batch: ''
@@ -30,17 +29,19 @@ const Register = ({ register }) => {
     setMessage({ text: '', type: '' })
 
     try {
-      // Enhanced client-side validation
-      if (!formData.name || !formData.rollNumber || !formData.password || !formData.department) {
+      // Client-side validation
+      if (!formData.name || !formData.rollNumber || !formData.password || 
+          !formData.department || !formData.batch) {
         throw new Error('Please fill in all required fields')
       }
 
-      // Additional validation for students
-      if (formData.role === 'student' && !formData.batch) {
-        throw new Error('Batch is required for students')
+      // Add student role automatically
+      const studentData = {
+        ...formData,
+        role: 'student' // Force role to be student
       }
 
-      const result = await register(formData)
+      const result = await register(studentData)
       
       if (result.success) {
         setMessage({ 
@@ -64,7 +65,7 @@ const Register = ({ register }) => {
   return (
     <div className="login-container">
       <div className="login-box">
-        <h2>Register</h2>
+        <h2>Student Registration</h2>
         
         {message.text && (
           <div className={`alert ${message.type}`}>
@@ -109,19 +110,6 @@ const Register = ({ register }) => {
           </div>
           
           <div className="form-group">
-            <label>Role *</label>
-            <select 
-              name="role"
-              value={formData.role}
-              onChange={handleChange}
-              required
-            >
-              <option value="student">Student</option>
-              <option value="staff">Staff</option>
-            </select>
-          </div>
-          
-          <div className="form-group">
             <label>Department *</label>
             <input
               type="text"
@@ -132,28 +120,26 @@ const Register = ({ register }) => {
             />
           </div>
           
-          {formData.role === 'student' && (
-            <div className="form-group">
-              <label>Batch *</label>
-              <input
-                type="text"
-                name="batch"
-                value={formData.batch}
-                onChange={handleChange}
-                required={formData.role === 'student'}
-                placeholder="e.g., 2023"
-              />
-            </div>
-          )}
+          <div className="form-group">
+            <label>Batch *</label>
+            <input
+              type="text"
+              name="batch"
+              value={formData.batch}
+              onChange={handleChange}
+              required
+              placeholder="e.g., 2023"
+            />
+          </div>
           
           <div className="form-group">
-            <label>Section {formData.role === 'student' ? '*' : '(Optional)'}</label>
+            <label>Section *</label>
             <input
               type="text"
               name="section"
               value={formData.section}
               onChange={handleChange}
-              required={formData.role === 'student'}
+              required
             />
           </div>
           

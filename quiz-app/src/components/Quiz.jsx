@@ -14,6 +14,7 @@ const Quiz = ({ user }) => {
   const [score, setScore] = useState(null);
   const [warning, setWarning] = useState('');
   const [fullscreenError, setFullscreenError] = useState(false);
+  const [imageLoadError, setImageLoadError] = useState({});
   const quizRef = useRef(null);
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
 
@@ -71,6 +72,13 @@ const Quiz = ({ user }) => {
         setQuiz(res.data.quiz);
         setAnswers(new Array(res.data.quiz.questions.length).fill(null));
         setTimeLeft(remainingTime);
+        
+        // Initialize image error state
+        const initialImageErrorState = {};
+        res.data.quiz.questions.forEach((_, index) => {
+          initialImageErrorState[index] = false;
+        });
+        setImageLoadError(initialImageErrorState);
         
         // Enter fullscreen mode
         enterFullscreen();
@@ -169,6 +177,13 @@ const Quiz = ({ user }) => {
     }
   };
 
+  const handleImageError = (questionIndex) => {
+    setImageLoadError(prev => ({
+      ...prev,
+      [questionIndex]: true
+    }));
+  };
+
   const formatTime = (seconds) => {
     if (seconds === null) return 'Loading...';
     const mins = Math.floor(seconds / 60);
@@ -220,14 +235,21 @@ const Quiz = ({ user }) => {
       <div className="question-container">
         <h3 className="question-text">{question.questionText}</h3>
         
-        {/* Add this image display section */}
-        {question.imageUrl && (
+        {/* Enhanced image display with error handling */}
+        {question.imageUrl && !imageLoadError[currentQuestion] && (
           <div className="question-image-container">
             <img 
               src={question.imageUrl} 
               alt="Question illustration" 
               className="question-image"
+              onError={() => handleImageError(currentQuestion)}
             />
+          </div>
+        )}
+        
+        {question.imageUrl && imageLoadError[currentQuestion] && (
+          <div className="image-error-message">
+            Could not load image for this question.
           </div>
         )}
         

@@ -23,6 +23,8 @@ const StaffDashboard = ({ user, logout }) => {
   const [batch, setBatch] = useState('');
   const [selectedQuiz, setSelectedQuiz] = useState(null);
   const [results, setResults] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -30,11 +32,12 @@ const StaffDashboard = ({ user, logout }) => {
   }, []);
 
   const fetchQuizzes = async () => {
+    setIsLoading(true);
+    setError('');
     try {
       const token = localStorage.getItem('token');
       if (!token) {
-        console.error('No token found');
-        return;
+        throw new Error('No authentication token found');
       }
 
       const baseURL = process.env.NODE_ENV === 'development' 
@@ -51,19 +54,19 @@ const StaffDashboard = ({ user, logout }) => {
       if (response.data?.success) {
         setQuizzes(response.data.quizzes);
       } else {
-        console.error('Unexpected response format:', response.data);
+        throw new Error('Unexpected response format');
       }
-    } catch (error) {
-      console.error('Error fetching quizzes:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-        config: error.config
-      });
+    } catch (err) {
+      console.error('Error fetching quizzes:', err);
+      setError(err.response?.data?.message || err.message || 'Failed to fetch quizzes');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const fetchResults = async (quizId) => {
+    setIsLoading(true);
+    setError('');
     try {
       const res = await axios.get(`/api/quizzes/${quizId}/results`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
@@ -72,6 +75,9 @@ const StaffDashboard = ({ user, logout }) => {
       setSelectedQuiz(quizzes.find(q => q._id === quizId));
     } catch (err) {
       console.error('Error fetching results:', err);
+      setError(err.response?.data?.message || err.message || 'Failed to fetch results');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -129,7 +135,27 @@ const StaffDashboard = ({ user, logout }) => {
 
   const handleSubmitQuiz = async (e) => {
     e.preventDefault();
+    setIsLoading(true);
+    setError('');
+    
     try {
+      // Basic validation
+      if (!quizTitle.trim()) {
+        throw new Error('Quiz title is required');
+      }
+      if (questions.some(q => !q.questionText.trim())) {
+        throw new Error('All questions must have text');
+      }
+      if (questions.some(q => q.options.some(opt => !opt.trim()))) {
+        throw new Error('All options must be filled');
+      }
+      if (!startTime || !endTime) {
+        throw new Error('Start and end times are required');
+      }
+      if (new Date(startTime) >= new Date(endTime)) {
+        throw new Error('End time must be after start time');
+      }
+
       const formData = new FormData();
       formData.append('title', quizTitle);
       formData.append('description', quizDescription);
@@ -167,6 +193,9 @@ const StaffDashboard = ({ user, logout }) => {
       fetchQuizzes();
     } catch (err) {
       console.error('Error creating quiz:', err);
+      setError(err.response?.data?.message || err.message || 'Failed to create quiz');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -186,9 +215,12 @@ const StaffDashboard = ({ user, logout }) => {
     setDuration(30);
     setDepartment('');
     setBatch('');
+    setError('');
   };
 
   const exportResults = async (quizId) => {
+    setIsLoading(true);
+    setError('');
     try {
       const response = await axios.get(`/api/quizzes/${quizId}/results/export`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
@@ -204,6 +236,27 @@ const StaffDashboard = ({ user, logout }) => {
       link.remove();
     } catch (err) {
       console.error('Error exporting results:', err);
+      setError(err.response?.data?.message || err.message || 'Failed to export results');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const deleteQuiz = async (quizId) => {
+    if (!window.confirm('Are you sure you want to delete this quiz?')) return;
+    
+    setIsLoading(true);
+    setError('');
+    try {
+      await axios.delete(`/api/quizzes/${quizId}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      fetchQuizzes();
+    } catch (err) {
+      console.error('Error deleting quiz:', err);
+      setError(err.response?.data?.message || err.message || 'Failed to delete quiz');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -218,38 +271,68 @@ const StaffDashboard = ({ user, logout }) => {
       </header>
 
       <div className="staff-content">
+        {error && <div className="error-message">{error}</div>}
+        {isLoading && <div className="loading-overlay">Loading...</div>}
+
         <div className="quiz-management">
           <h2>Quiz Management</h2>
-          <button onClick={() => setShowQuizForm(true)}>Create New Quiz</button>
+          <button 
+            onClick={() => setShowQuizForm(true)}
+            className="create-quiz-btn"
+          >
+            Create New Quiz
+          </button>
           
           {quizzes.length > 0 ? (
-            <table className="quiz-table">
-              <thead>
-                <tr>
-                  <th>Title</th>
-                  <th>Start Time</th>
-                  <th>End Time</th>
-                  <th>Duration</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {quizzes.map(quiz => (
-                  <tr key={quiz._id}>
-                    <td>{quiz.title}</td>
-                    <td>{new Date(quiz.startTime).toLocaleString()}</td>
-                    <td>{new Date(quiz.endTime).toLocaleString()}</td>
-                    <td>{quiz.duration} mins</td>
-                    <td>
-                      <button onClick={() => fetchResults(quiz._id)}>View Results</button>
-                      <button onClick={() => exportResults(quiz._id)}>Export Results</button>
-                    </td>
+            <div className="quiz-table-container">
+              <table className="quiz-table">
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Start Time</th>
+                    <th>End Time</th>
+                    <th>Duration</th>
+                    <th>Department</th>
+                    <th>Batch</th>
+                    <th>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {quizzes.map(quiz => (
+                    <tr key={quiz._id}>
+                      <td>{quiz.title}</td>
+                      <td>{new Date(quiz.startTime).toLocaleString()}</td>
+                      <td>{new Date(quiz.endTime).toLocaleString()}</td>
+                      <td>{quiz.duration} mins</td>
+                      <td>{quiz.department || '-'}</td>
+                      <td>{quiz.batch || '-'}</td>
+                      <td className="actions-cell">
+                        <button 
+                          onClick={() => fetchResults(quiz._id)}
+                          className="view-results-btn"
+                        >
+                          View Results
+                        </button>
+                        <button 
+                          onClick={() => exportResults(quiz._id)}
+                          className="export-btn"
+                        >
+                          Export
+                        </button>
+                        <button 
+                          onClick={() => deleteQuiz(quiz._id)}
+                          className="delete-btn"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
-            <p>No quizzes created yet</p>
+            <p className="no-quizzes">No quizzes created yet</p>
           )}
         </div>
 
@@ -257,9 +340,10 @@ const StaffDashboard = ({ user, logout }) => {
           <div className="quiz-form-overlay">
             <div className="quiz-form">
               <h2>Create New Quiz</h2>
+              
               <form onSubmit={handleSubmitQuiz}>
                 <div className="form-group">
-                  <label>Quiz Title</label>
+                  <label>Quiz Title *</label>
                   <input
                     type="text"
                     value={quizTitle}
@@ -278,7 +362,7 @@ const StaffDashboard = ({ user, logout }) => {
                 
                 <div className="form-row">
                   <div className="form-group">
-                    <label>Start Time</label>
+                    <label>Start Time *</label>
                     <input
                       type="datetime-local"
                       value={startTime}
@@ -288,7 +372,7 @@ const StaffDashboard = ({ user, logout }) => {
                   </div>
                   
                   <div className="form-group">
-                    <label>End Time</label>
+                    <label>End Time *</label>
                     <input
                       type="datetime-local"
                       value={endTime}
@@ -296,11 +380,9 @@ const StaffDashboard = ({ user, logout }) => {
                       required
                     />
                   </div>
-                </div>
-                
-                <div className="form-row">
+                  
                   <div className="form-group">
-                    <label>Duration (minutes)</label>
+                    <label>Duration (minutes) *</label>
                     <input
                       type="number"
                       value={duration}
@@ -309,7 +391,9 @@ const StaffDashboard = ({ user, logout }) => {
                       required
                     />
                   </div>
-                  
+                </div>
+                
+                <div className="form-row">
                   <div className="form-group">
                     <label>Department (optional)</label>
                     <input
@@ -329,11 +413,11 @@ const StaffDashboard = ({ user, logout }) => {
                   </div>
                 </div>
                 
-                <h3>Questions</h3>
+                <h3>Questions *</h3>
                 {questions.map((q, qIndex) => (
                   <div key={qIndex} className="question-group">
                     <div className="form-group">
-                      <label>Question {qIndex + 1}</label>
+                      <label>Question {qIndex + 1} *</label>
                       <input
                         type="text"
                         value={q.questionText}
@@ -343,7 +427,7 @@ const StaffDashboard = ({ user, logout }) => {
                     </div>
                     
                     <div className="form-group">
-                      <label>Points</label>
+                      <label>Points *</label>
                       <input
                         type="number"
                         value={q.points}
@@ -351,6 +435,32 @@ const StaffDashboard = ({ user, logout }) => {
                         min="1"
                         required
                       />
+                    </div>
+                    
+                    <div className="form-group">
+                      <label>Question Image (optional)</label>
+                      {q.imagePreview ? (
+                        <div className="image-preview-container">
+                          <img 
+                            src={q.imagePreview} 
+                            alt="Question preview" 
+                            className="image-preview"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeImage(qIndex)}
+                            className="remove-image-btn"
+                          >
+                            Remove Image
+                          </button>
+                        </div>
+                      ) : (
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => handleImageUpload(e, qIndex)}
+                        />
+                      )}
                     </div>
                     
                     <div className="options-group">
@@ -363,7 +473,7 @@ const StaffDashboard = ({ user, logout }) => {
                             required
                             placeholder={`Option ${oIndex + 1}`}
                           />
-                          <label>
+                          <label className="correct-option-label">
                             <input
                               type="radio"
                               name={`correctAnswer-${qIndex}`}
@@ -376,28 +486,44 @@ const StaffDashboard = ({ user, logout }) => {
                       ))}
                     </div>
                     
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveQuestion(qIndex)}
-                      className="remove-btn"
-                    >
-                      Remove Question
-                    </button>
+                    {questions.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveQuestion(qIndex)}
+                        className="remove-question-btn"
+                      >
+                        Remove Question
+                      </button>
+                    )}
                   </div>
                 ))}
                 
-                <button type="button" onClick={handleAddQuestion} className="add-btn">
+                <button 
+                  type="button" 
+                  onClick={handleAddQuestion}
+                  className="add-question-btn"
+                >
                   Add Question
                 </button>
                 
                 <div className="form-actions">
-                  <button type="button" onClick={() => {
-                    setShowQuizForm(false);
-                    resetForm();
-                  }}>
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      setShowQuizForm(false);
+                      resetForm();
+                    }}
+                    className="cancel-btn"
+                  >
                     Cancel
                   </button>
-                  <button type="submit">Create Quiz</button>
+                  <button 
+                    type="submit" 
+                    className="submit-btn"
+                    disabled={isLoading}
+                  >
+                    {isLoading ? 'Creating...' : 'Create Quiz'}
+                  </button>
                 </div>
               </form>
             </div>
@@ -408,31 +534,37 @@ const StaffDashboard = ({ user, logout }) => {
           <div className="results-overlay">
             <div className="results-container">
               <h2>Results for {selectedQuiz.title}</h2>
-              <button onClick={() => setSelectedQuiz(null)} className="close-btn">×</button>
+              <button 
+                onClick={() => setSelectedQuiz(null)}
+                className="close-results-btn"
+              >
+              </button>
               
               {results.length > 0 ? (
-                <table className="results-table">
-                  <thead>
-                    <tr>
-                      <th>Student</th>
-                      <th>Roll Number</th>
-                      <th>Score</th>
-                      <th>Submitted At</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {results.map(result => (
-                      <tr key={result._id}>
-                        <td>{result.user?.name || 'Unknown'}</td>
-                        <td>{result.user?.rollNumber || 'N/A'}</td>
-                        <td>{result.score}</td>
-                        <td>{new Date(result.submittedAt).toLocaleString()}</td>
+                <div className="results-table-container">
+                  <table className="results-table">
+                    <thead>
+                      <tr>
+                        <th>Student</th>
+                        <th>Roll Number</th>
+                        <th>Score</th>
+                        <th>Submitted At</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {results.map(result => (
+                        <tr key={result._id}>
+                          <td>{result.user?.name || 'Unknown'}</td>
+                          <td>{result.user?.rollNumber || 'N/A'}</td>
+                          <td>{result.score}</td>
+                          <td>{new Date(result.submittedAt).toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               ) : (
-                <p>No results available for this quiz</p>
+                <p className="no-results">No results available for this quiz</p>
               )}
             </div>
           </div>

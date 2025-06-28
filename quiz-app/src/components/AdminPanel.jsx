@@ -25,10 +25,22 @@ const AdminPanel = ({ user, logout }) => {
     batch: '',
     search: ''
   });
+  const [showCreateStaffModal, setShowCreateStaffModal] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [newStaff, setNewStaff] = useState({
+    name: '',
+    rollNumber: '',
+    password: '',
+    department: ''
+  });
+  const [passwordUpdateData, setPasswordUpdateData] = useState({
+    userId: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
 
   const navigate = useNavigate();
 
-  // Fetch data on component mount
   useEffect(() => {
     if (!user || user.role !== 'admin') {
       navigate('/login');
@@ -40,7 +52,6 @@ const AdminPanel = ({ user, logout }) => {
     fetchDeletedUsers();
   }, []);
 
-  // Data fetching functions
   const fetchPendingUsers = async () => {
     setIsLoading(prev => ({ ...prev, pending: true }));
     try {
@@ -83,7 +94,6 @@ const AdminPanel = ({ user, logout }) => {
     }
   };
 
-  // Error handling helper
   const handleApiError = (err, defaultMessage) => {
     console.error(err);
     setMessage({
@@ -95,7 +105,6 @@ const AdminPanel = ({ user, logout }) => {
     }
   };
 
-  // Filtering functions
   const filterUsers = (users) => {
     return users.filter(user => {
       return (
@@ -114,7 +123,6 @@ const AdminPanel = ({ user, logout }) => {
   const filteredActiveUsers = filterUsers(activeUsers);
   const filteredDeletedUsers = filterUsers(deletedUsers);
 
-  // Filter handlers
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
     setFilters(prev => ({
@@ -133,7 +141,6 @@ const AdminPanel = ({ user, logout }) => {
     });
   };
 
-  // Action handlers
   const handleApprove = async () => {
     if (selectedPending.length === 0) return;
     
@@ -282,7 +289,95 @@ const AdminPanel = ({ user, logout }) => {
     }
   };
 
-  // Selection handlers
+  const handleCreateStaff = async (e) => {
+    e.preventDefault();
+    setIsLoading(prev => ({ ...prev, action: true }));
+    
+    try {
+      if (!newStaff.name || !newStaff.rollNumber || !newStaff.password || !newStaff.department) {
+        throw new Error('Please fill in all fields');
+      }
+
+      const staffData = {
+        ...newStaff,
+        role: 'staff',
+        isApproved: true
+      };
+
+      const res = await axios.post('/api/users/staff', staffData,  {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+
+      setMessage({
+        text: 'Staff account created successfully',
+        type: 'success'
+      });
+      setShowCreateStaffModal(false);
+      setNewStaff({
+        name: '',
+        rollNumber: '',
+        password: '',
+        department: ''
+      });
+      fetchActiveUsers();
+    } catch (err) {
+      setMessage({
+        text: err.response?.data?.message || err.message || 'Failed to create staff account',
+        type: 'error'
+      });
+    } finally {
+      setIsLoading(prev => ({ ...prev, action: false }));
+    }
+  };
+
+  const handlePasswordUpdate = async (e) => {
+    e.preventDefault();
+    
+    if (passwordUpdateData.newPassword !== passwordUpdateData.confirmPassword) {
+      setMessage({ text: 'Passwords do not match', type: 'error' });
+      return;
+    }
+
+    setIsLoading(prev => ({ ...prev, action: true }));
+    
+    try {
+      await axios.put(
+        `/api/users/${passwordUpdateData.userId}/password`,
+        { newPassword: passwordUpdateData.newPassword },
+        {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        }
+      );
+
+      setMessage({
+        text: 'Password updated successfully',
+        type: 'success'
+      });
+      setShowPasswordModal(false);
+      setPasswordUpdateData({
+        userId: '',
+        newPassword: '',
+        confirmPassword: ''
+      });
+    } catch (err) {
+      setMessage({
+        text: err.response?.data?.message || 'Failed to update password',
+        type: 'error'
+      });
+    } finally {
+      setIsLoading(prev => ({ ...prev, action: false }));
+    }
+  };
+
+  const openPasswordModal = (userId) => {
+    setPasswordUpdateData({
+      userId,
+      newPassword: '',
+      confirmPassword: ''
+    });
+    setShowPasswordModal(true);
+  };
+
   const togglePendingSelect = id => {
     setSelectedPending(prev =>
       prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
@@ -325,8 +420,7 @@ const AdminPanel = ({ user, logout }) => {
     }
   };
 
-  // Render function
-   return (
+  return (
     <div className="admin-container">
       <header className="admin-header">
         <h1>Admin Dashboard</h1>
@@ -374,7 +468,6 @@ const AdminPanel = ({ user, logout }) => {
       </div>
 
       <div className="admin-content">
-        {/* Filter Section */}
         <div className="filter-section">
           <div className="filter-row">
             <div className="filter-group">
@@ -427,7 +520,7 @@ const AdminPanel = ({ user, logout }) => {
                 name="search" 
                 value={filters.search} 
                 onChange={handleFilterChange}
-                placeholder="Search by name or roll number"
+                placeholder="Search by name or ID"
               />
             </div>
             
@@ -512,6 +605,12 @@ const AdminPanel = ({ user, logout }) => {
               <h2>Active Users ({filteredActiveUsers.length})</h2>
               <div className="action-buttons">
                 <button
+                  onClick={() => setShowCreateStaffModal(true)}
+                  className="primary-btn"
+                >
+                  Create Staff Account
+                </button>
+                <button
                   onClick={handleDelete}
                   disabled={selectedActive.length === 0 || isLoading.action}
                   className="danger-btn"
@@ -542,6 +641,7 @@ const AdminPanel = ({ user, logout }) => {
                       <th>Department</th>
                       <th>Section</th>
                       <th>Batch</th>
+                      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -560,6 +660,14 @@ const AdminPanel = ({ user, logout }) => {
                         <td>{user.department}</td>
                         <td>{user.section || '-'}</td>
                         <td>{user.batch || '-'}</td>
+                        <td>
+                          <button 
+                            onClick={() => openPasswordModal(user._id)}
+                            className="secondary-btn small-btn"
+                          >
+                            Update Password
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -649,6 +757,135 @@ const AdminPanel = ({ user, logout }) => {
           </>
         )}
       </div>
+
+      {/* Create Staff Modal */}
+      {showCreateStaffModal && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h3>Create New Staff Account</h3>
+            <button 
+              className="close-modal" 
+              onClick={() => setShowCreateStaffModal(false)}
+            >
+              &times;
+            </button>
+            <form onSubmit={handleCreateStaff}>
+              <div className="form-group">
+                <label>Full Name *</label>
+                <input
+                  type="text"
+                  value={newStaff.name}
+                  onChange={(e) => setNewStaff({...newStaff, name: e.target.value})}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Staff ID *</label>
+                <input
+                  type="text"
+                  value={newStaff.rollNumber}
+                  onChange={(e) => setNewStaff({...newStaff, rollNumber: e.target.value})}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Password *</label>
+                <input
+                  type="password"
+                  value={newStaff.password}
+                  onChange={(e) => setNewStaff({...newStaff, password: e.target.value})}
+                  required
+                  minLength="6"
+                />
+              </div>
+              <div className="form-group">
+                <label>Department *</label>
+                <input
+                  type="text"
+                  value={newStaff.department}
+                  onChange={(e) => setNewStaff({...newStaff, department: e.target.value})}
+                  required
+                />
+              </div>
+              <div className="modal-buttons">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateStaffModal(false)}
+                  className="secondary-btn"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isLoading.action}
+                  className="primary-btn"
+                >
+                  {isLoading.action ? 'Creating...' : 'Create Account'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Password Update Modal */}
+      {showPasswordModal && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h3>Update User Password</h3>
+            <button 
+              className="close-modal" 
+              onClick={() => setShowPasswordModal(false)}
+            >
+              &times;
+            </button>
+            <form onSubmit={handlePasswordUpdate}>
+              <div className="form-group">
+                <label>New Password *</label>
+                <input
+                  type="password"
+                  value={passwordUpdateData.newPassword}
+                  onChange={(e) => setPasswordUpdateData({
+                    ...passwordUpdateData,
+                    newPassword: e.target.value
+                  })}
+                  required
+                  minLength="6"
+                />
+              </div>
+              <div className="form-group">
+                <label>Confirm Password *</label>
+                <input
+                  type="password"
+                  value={passwordUpdateData.confirmPassword}
+                  onChange={(e) => setPasswordUpdateData({
+                    ...passwordUpdateData,
+                    confirmPassword: e.target.value
+                  })}
+                  required
+                  minLength="6"
+                />
+              </div>
+              <div className="modal-buttons">
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordModal(false)}
+                  className="secondary-btn"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isLoading.action}
+                  className="primary-btn"
+                >
+                  {isLoading.action ? 'Updating...' : 'Update Password'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
