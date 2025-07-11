@@ -41,7 +41,7 @@ const StaffDashboard = ({ user, logout }) => {
       }
 
       const baseURL = process.env.NODE_ENV === 'development' 
-        ? 'http://localhost:5000' 
+        ? 'http://localhost:5050' 
         : '';
         
       const response = await axios.get(`${baseURL}/api/quizzes`, {
@@ -133,71 +133,56 @@ const StaffDashboard = ({ user, logout }) => {
     setQuestions(newQuestions);
   };
 
-  const handleSubmitQuiz = async (e) => {
+const handleSubmitQuiz = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
+
+    const formData = new FormData();
     
-    try {
-      // Basic validation
-      if (!quizTitle.trim()) {
-        throw new Error('Quiz title is required');
-      }
-      if (questions.some(q => !q.questionText.trim())) {
-        throw new Error('All questions must have text');
-      }
-      if (questions.some(q => q.options.some(opt => !opt.trim()))) {
-        throw new Error('All options must be filled');
-      }
-      if (!startTime || !endTime) {
-        throw new Error('Start and end times are required');
-      }
-      if (new Date(startTime) >= new Date(endTime)) {
-        throw new Error('End time must be after start time');
-      }
+    // Add text fields
+    formData.append('title', quizTitle);
+    formData.append('description', quizDescription);
+    formData.append('questions', JSON.stringify(
+        questions.map(q => ({
+            questionText: q.questionText,
+            options: q.options,
+            correctAnswer: q.correctAnswer,
+            points: q.points,
+            _id: q._id || Date.now().toString() + Math.random().toString(36).substr(2, 9) // Add temporary ID for reference
+        }))
+    ));
+    formData.append('startTime', startTime);
+    formData.append('endTime', endTime);
+    formData.append('duration', duration.toString());
+    formData.append('department', department || '');
+    formData.append('batch', batch || '');
 
-      const formData = new FormData();
-      formData.append('title', quizTitle);
-      formData.append('description', quizDescription);
-      formData.append('startTime', startTime);
-      formData.append('endTime', endTime);
-      formData.append('duration', duration);
-      formData.append('department', department);
-      formData.append('batch', batch);
-
-      // Add questions data
-      const questionsData = questions.map(q => ({
-        questionText: q.questionText,
-        options: q.options,
-        correctAnswer: q.correctAnswer,
-        points: q.points
-      }));
-      formData.append('questions', JSON.stringify(questionsData));
-
-      // Add image files if they exist
-      questions.forEach((q, index) => {
+    // Add image files
+    questions.forEach((q, index) => {
         if (q.image) {
-          formData.append(`questionImages`, q.image);
+            formData.append('questionImages', q.image);
         }
-      });
+    });
 
-      await axios.post('/api/quizzes', formData, {
-        headers: { 
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'multipart/form-data'
-        }
-      });
-
-      setShowQuizForm(false);
-      resetForm();
-      fetchQuizzes();
+    try {
+        const response = await axios.post('/api/quizzes', formData, {
+            headers: { 
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'multipart/form-data'
+            }
+        });
+        
+        setShowQuizForm(false);
+        resetForm();
+        fetchQuizzes();
     } catch (err) {
-      console.error('Error creating quiz:', err);
-      setError(err.response?.data?.message || err.message || 'Failed to create quiz');
+        console.error('Error:', err);
+        setError(err.response?.data?.message || err.message || 'Failed to create quiz');
     } finally {
-      setIsLoading(false);
+        setIsLoading(false);
     }
-  };
+};
 
   const resetForm = () => {
     setQuizTitle('');

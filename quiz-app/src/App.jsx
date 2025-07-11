@@ -11,7 +11,7 @@ import QuizResultDetails from './components/QuizResultDetails' // Add this impor
 import './App.css'
 
 // Set axios base URL
-axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
 
 function App() {
   const [user, setUser] = useState(null)
