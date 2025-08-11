@@ -1,14 +1,71 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { FaCheck, FaTimes, FaArrowLeft, FaArrowRight, FaArrowAltCircleLeft, FaArrowAltCircleRight } from 'react-icons/fa';
 import '../styles/quiz-result.css';
 
 const QuizResultDetails = ({ user }) => {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [imageCache, setImageCache] = useState({});
+  const [currentQuestion, setCurrentQuestion] = useState(0);
   const { id } = useParams();
   const navigate = useNavigate();
+
+  // Function to get image URL
+  const getImageUrl = (question, index) => {
+    if (!question) return null;
+    
+    // First check for imageUrl (used in results)
+    if (question.imageUrl) {
+      // If it's already a full URL or data URL, return as is
+      if (typeof question.imageUrl === 'string' && 
+          (question.imageUrl.startsWith('http') || 
+           question.imageUrl.startsWith('data:') ||
+           question.imageUrl.startsWith('blob:'))) {
+        return question.imageUrl;
+      }
+      
+      // If it's a base64 string without prefix, add the data URL prefix
+      if (typeof question.imageUrl === 'string') {
+        return `data:image/png;base64,${question.imageUrl}`;
+      }
+    }
+    
+    // Fallback to image data if available
+    if (question.image) {
+      // If it's a Buffer object
+      if (question.image.data) {
+        try {
+          const buffer = question.image.data.data || question.image.data;
+          const bytes = buffer instanceof Uint8Array 
+            ? buffer 
+            : new Uint8Array(buffer);
+          
+          const binary = Array.from(bytes).map(b => String.fromCharCode(b)).join('');
+          const base64String = btoa(binary);
+          
+          return `data:${question.image.contentType || 'image/png'};base64,${base64String}`;
+        } catch (err) {
+          console.error('Error processing image buffer:', err);
+        }
+      }
+      
+      // If it's a direct URL string
+      if (typeof question.image === 'string') {
+        return question.image;
+      }
+    }
+    
+    // Check cache if we have a processed image
+    const cacheKey = `${id}-q${index}`;
+    if (imageCache[cacheKey]) {
+      return imageCache[cacheKey];
+    }
+    
+    return null;
+  };
 
   useEffect(() => {
     const fetchResultDetails = async () => {
@@ -18,7 +75,22 @@ const QuizResultDetails = ({ user }) => {
         });
         
         if (res.data.success) {
-          setResult(res.data.result);
+          // Process the result data
+          const processedResult = { ...res.data.result };
+          
+          // Cache any image data
+          const newImageCache = { ...imageCache };
+          if (processedResult.quiz?.questions) {
+            processedResult.quiz.questions.forEach((q, idx) => {
+              const cacheKey = `${id}-q${idx}`;
+              if (q.imageUrl && !newImageCache[cacheKey]) {
+                newImageCache[cacheKey] = getImageUrl(q, idx);
+              }
+            });
+          }
+          
+          setImageCache(newImageCache);
+          setResult(processedResult);
         } else {
           setError(res.data.message || 'Failed to load result details');
         }
@@ -35,61 +107,246 @@ const QuizResultDetails = ({ user }) => {
     };
 
     fetchResultDetails();
-  }, [id, navigate]);
+  }, [id, navigate, imageCache]);
 
-  if (loading) return <div className="loading">Loading quiz results...</div>;
-  if (error) return <div className="error">Error: {error}</div>;
-  if (!result) return <div className="error">No result data available</div>;
+  // Calculate total points and score percentage
+  const totalPoints = result?.quiz?.questions?.reduce(
+    (sum, q) => sum + (q.points || 1), 0
+  ) || 0;
+  const scorePercentage = totalPoints > 0 
+    ? Math.round((result?.score / totalPoints) * 100) 
+    : 0;
+
+  const handleNextQuestion = () => {
+    if (currentQuestion < result?.quiz?.questions?.length - 1) {
+      setCurrentQuestion(currentQuestion + 1);
+    }
+  };
+
+  const handlePrevQuestion = () => {
+    if (currentQuestion > 0) {
+      setCurrentQuestion(currentQuestion - 1);
+    }
+  };
+
+  if (loading) return (
+    <div className="loading-container">
+      <div className="loading-spinner"></div>
+      <p>Loading quiz results...</p>
+    </div>
+  );
+  
+  if (error) return (
+    <div className="error-container">
+      <div className="error-icon">!</div>
+      <h2>Error Loading Results</h2>
+      <p>{error}</p>
+      <button onClick={() => navigate('/student')} className="back-button">
+        <FaArrowLeft /> Back to Dashboard
+      </button>
+    </div>
+  );
+  
+  if (!result) return (
+    <div className="error-container">
+      <h2>No Result Data Available</h2>
+      <button onClick={() => navigate('/student')} className="back-button">
+        <FaArrowLeft /> Back to Dashboard
+      </button>
+    </div>
+  );
 
   return (
-    <div className="quiz-result-container">
-      <header className="quiz-result-header">
-        <h1>Quiz Result: {result.quiz.title}</h1>
-        <div className="user-info">
-          <span>{user.name} ({user.rollNumber})</span>
-          <button onClick={() => navigate('/student')}>Back to Dashboard</button>
-        </div>
-      </header>
-
-      <div className="quiz-result-summary">
-        <h2>Summary</h2>
-        <p>Score: {result.score}</p>
-        <p>Submitted at: {new Date(result.submittedAt).toLocaleString()}</p>
-      </div>
-
-      <div className="quiz-questions">
-        <h2>Questions and Answers</h2>
-        {result.quiz.questions.map((question, index) => (
-          <div 
-            key={index} 
-            className={`question ${result.answers[index] === question.correctAnswer ? 'correct' : 'incorrect'}`}
-          >
-            <h3>Question {index + 1}: {question.questionText}</h3>
-            {question.imageUrl && (
-              <img src={question.imageUrl} alt="Question" className="question-image" />
-            )}
-            <div className="options">
-              {question.options.map((option, optIndex) => (
-                <div 
-                  key={optIndex}
-                  className={`option 
-                    ${optIndex === question.correctAnswer ? 'correct-answer' : ''}
-                    ${optIndex === result.answers[index] ? 'your-answer' : ''}
-                  `}
-                >
-                  {option}
-                </div>
-              ))}
-            </div>
-            <p>Points: {question.points || 1}</p>
-            <p>
-              {result.answers[index] === question.correctAnswer 
-                ? '✓ Correct' 
-                : '✗ Incorrect'}
-            </p>
+    <div className="quiz-result-app">
+      {/* Navbar */}
+      <nav className="navbar">
+        <div className="nav-container">
+          <div className="quiz-title-nav">
+            <span>Results: {result.quiz.title}</span>
           </div>
-        ))}
-      </div>
+          <div className="nav-actions">
+            <div className="user-profile">
+              <span className="user-name">{user.name}</span>
+              <img 
+                src={user.avatar || '/default-avatar.png'} 
+                alt="User" 
+                className="user-avatar" 
+              />
+            </div>
+            <button 
+              onClick={() => navigate('/student')} 
+              className="nav-button"
+            >
+              <FaArrowLeft /> Dashboard
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      {/* Main Content */}
+      <main className="quiz-result-content">
+        {/* Summary Section */}
+        <section className="quiz-summary-section">
+          <div className="summary-card">
+            <h2>Quiz Summary</h2>
+            <div className="summary-grid">
+              <div className="summary-item">
+                <div className="summary-icon score-icon">
+                  <FaCheck />
+                </div>
+                <div className="summary-text">
+                  <span className="summary-label">Score</span>
+                  <span className="summary-value">{result.score}/{totalPoints}</span>
+                </div>
+              </div>
+              
+              <div className="summary-item">
+                <div className="summary-icon percentage-icon">
+                  %
+                </div>
+                <div className="summary-text">
+                  <span className="summary-label">Percentage</span>
+                  <span className="summary-value">{scorePercentage}%</span>
+                </div>
+              </div>
+              
+              <div className="summary-item">
+                <div className="summary-icon questions-icon">
+                  ?
+                </div>
+                <div className="summary-text">
+                  <span className="summary-label">Questions</span>
+                  <span className="summary-value">{result.quiz.questions.length}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Questions Section */}
+        <section className="questions-section">
+          <div className="question-navigation">
+            <button 
+              onClick={handlePrevQuestion} 
+              className="nav-button"
+              disabled={currentQuestion === 0}
+            >
+              <FaArrowAltCircleLeft /> Previous
+            </button>
+            
+            <div className="question-counter">
+              Question {currentQuestion + 1} of {result.quiz.questions.length}
+            </div>
+            
+            <button 
+              onClick={handleNextQuestion} 
+              className="nav-button"
+              disabled={currentQuestion === result.quiz.questions.length - 1}
+            >
+              Next <FaArrowAltCircleRight />
+            </button>
+          </div>
+
+          {/* Current Question */}
+          {result.quiz.questions.map((question, index) => {
+            if (index !== currentQuestion) return null;
+            
+            const isCorrect = result.answers[index] === question.correctAnswer;
+            const cacheKey = `${id}-q${index}`;
+            const imageSrc = question.imageUrl || imageCache[cacheKey];
+            
+            return (
+              <div 
+                key={index} 
+                className={`question-card ${isCorrect ? 'correct' : 'incorrect'}`}
+              >
+                <div className="question-header">
+                  <div className="question-meta">
+                    <span className="question-number">Question {index + 1}</span>
+                    <span className="question-points">
+                      {question.points || 1} {question.points === 1 ? 'point' : 'points'}
+                    </span>
+                  </div>
+                  <div className={`question-status ${isCorrect ? 'correct' : 'incorrect'}`}>
+                    {isCorrect ? (
+                      <>
+                        <FaCheck className="status-icon" /> Correct
+                      </>
+                    ) : (
+                      <>
+                        <FaTimes className="status-icon" /> Incorrect
+                      </>
+                    )}
+                  </div>
+                </div>
+                
+                <div className="question-content">
+                  <p className="question-text">{question.questionText}</p>
+                  {(() => {
+                    const imageUrl = getImageUrl(question, currentQuestion);
+                    
+                    return imageUrl ? (
+                      <div className="question-image-container">
+                        <img 
+                          src={imageUrl}
+                          alt="Question" 
+                          className="question-image"
+                          onError={(e) => {
+                            console.error('Error loading image:', e);
+                            e.target.style.display = 'none';
+                          }}
+                        />
+                      </div>
+                    ) : null;
+                  })()}
+                  
+                  <div className="options">
+                    {question.options.map((option, optIndex) => {
+                      const isCorrectAnswer = optIndex === question.correctAnswer;
+                      const isUserAnswer = optIndex === result.answers[index];
+                      
+                      return (
+                        <div 
+                          key={optIndex}
+                          className={`option ${isCorrectAnswer ? 'correct-answer' : ''} ${isUserAnswer ? 'your-answer' : ''}`}
+                        >
+                          <span className="option-letter">
+                            {String.fromCharCode(65 + optIndex)}.
+                          </span>
+                          <span className="option-text">{option}</span>
+                          {isCorrectAnswer && (
+                            <span className="correct-indicator">
+                              <FaCheck />
+                            </span>
+                          )}
+                          {isUserAnswer && !isCorrectAnswer && (
+                            <span className="incorrect-indicator">
+                              <FaTimes />
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  
+                  {!isCorrect && (
+                    <div className="feedback">
+                      <p className="correct-answer-text">
+                        <strong>Correct answer:</strong> {String.fromCharCode(65 + question.correctAnswer)}. {question.options[question.correctAnswer]}
+                      </p>
+                      {question.explanation && (
+                        <div className="explanation">
+                          <strong>Explanation:</strong> {question.explanation}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      </main>
     </div>
   );
 };

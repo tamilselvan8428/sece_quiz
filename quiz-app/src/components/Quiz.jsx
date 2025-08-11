@@ -19,6 +19,7 @@ const Quiz = () => {
   const [showTabSwitchWarning, setShowTabSwitchWarning] = useState(false);
   const visibilityChangeRef = useRef(null);
   const [imageLoadError, setImageLoadError] = useState({});
+  const [imageUrls, setImageUrls] = useState({});
   
   const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050';
 
@@ -77,11 +78,28 @@ const Quiz = () => {
 
         const quizData = response.data.quiz;
         
-        // Debug: Log the quiz data structure
-        console.log('Quiz data:', quizData);
-        if (quizData.questions && quizData.questions[0]?.image) {
-          console.log('First question image data:', quizData.questions[0].image);
-        }
+        // Process images to create URLs
+        const newImageUrls = {};
+        quizData.questions.forEach((question, index) => {
+          if (question.image && question.image.data) {
+            // Check if data is already a base64 string or a buffer
+            if (typeof question.image.data === 'string') {
+              // If it's already a base64 string
+              newImageUrls[index] = `data:${question.image.contentType};base64,${question.image.data}`;
+            } else if (question.image.data.data) {
+              // If it's a Buffer object
+              const buffer = question.image.data.data || question.image.data;
+              const base64String = btoa(
+                new Uint8Array(buffer).reduce(
+                  (data, byte) => data + String.fromCharCode(byte),
+                  ''
+                )
+              );
+              newImageUrls[index] = `data:${question.image.contentType};base64,${base64String}`;
+            }
+          }
+        });
+        setImageUrls(newImageUrls);
 
         if (quizData.endTime) {
           const endTime = new Date(quizData.endTime).getTime();
@@ -284,17 +302,17 @@ const Quiz = () => {
       <div className="question-container">
         <h2 className="question-text">{currentQuestionData.questionText}</h2>
 
-{currentQuestionData.image?.data && !imageLoadError[currentQuestion]&& (
-  <div className="question-image-container">
-    <img 
-      src={`data:${currentQuestionData.image.contentType};base64,${currentQuestionData.image.data}`}
-      alt="Question illustration"
-      className="question-image"
-      onLoad={() => setImageLoadError(prev => ({ ...prev, [currentQuestion]: false }))}
-      onError={() => setImageLoadError(prev => ({ ...prev, [currentQuestion]: true }))}
-    />
-  </div>
-)}
+        {imageUrls[currentQuestion] && !imageLoadError[currentQuestion] && (
+          <div className="question-image-container">
+            <img 
+              src={imageUrls[currentQuestion]}
+              alt="Question illustration"
+              className="question-image"
+              onLoad={() => setImageLoadError(prev => ({ ...prev, [currentQuestion]: false }))}
+              onError={() => setImageLoadError(prev => ({ ...prev, [currentQuestion]: true }))}
+            />
+          </div>
+        )}
         
         {imageLoadError[currentQuestion] && (
           <div className="image-error">

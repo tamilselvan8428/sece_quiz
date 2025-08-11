@@ -104,28 +104,27 @@
         deletedAt: { type: Date, default: Date.now }
     });
 
-    const QuizSchema = new mongoose.Schema({
-title: String,
-    description: String,
-    questions: [{
-        questionText: String,
-        image: {
-            data: Buffer,
-            contentType: String,
-            url: String // Optional URL if you want to store both
-        },
-        options: [String],
-        correctAnswer: Number,
-        points: Number
-    }],
-        startTime: Date,
-        endTime: Date,
-        duration: Number, // in minutes
-        createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-        department: String,
-        batch: String,
-        createdAt: { type: Date, default: Date.now }
-    });
+const QuizSchema = new mongoose.Schema({
+  title: String,
+  description: String,
+  questions: [{
+    questionText: String,
+    image: {
+      data: Buffer,
+      contentType: String
+    },
+    options: [String],
+    correctAnswer: Number,
+    points: Number
+  }],
+  startTime: Date,
+  endTime: Date,
+  duration: Number,
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  department: String,
+  batch: String,
+  createdAt: { type: Date, default: Date.now }
+});
 
     const QuizResultSchema = new mongoose.Schema({
         quiz: { type: mongoose.Schema.Types.ObjectId, ref: 'Quiz' },
@@ -641,66 +640,64 @@ title: String,
 
     // Quiz Routes with Image Support
 app.post('/api/quizzes', 
-    authenticate, 
-    authorize(['staff', 'admin']), 
-    upload.array('questionImages'), 
-    async (req, res) => {
-        try {
-            const { title, description, questions, startTime, endTime, duration, department, batch } = req.body;
-            
-            // Parse questions (they come as JSON string)
-            let parsedQuestions = JSON.parse(questions);
-            
-            // Process each question with its image
-            const processedQuestions = await Promise.all(parsedQuestions.map(async (q, index) => {
-                const questionData = {
-                    questionText: q.questionText,
-                    options: q.options,
-                    correctAnswer: q.correctAnswer,
-                    points: q.points
-                };
-                
-                if (req.files && req.files[index]) {
-                    const file = req.files[index];
-                    questionData.image = {
-                        data: fs.readFileSync(file.path),
-                        contentType: file.mimetype
-                    };
-                    // Clean up the uploaded file
-                    fs.unlinkSync(file.path);
-                }
-                
-                return questionData;
-            }));
-
-            const quiz = new Quiz({
-                title,
-                description,
-                questions: processedQuestions,
-                startTime: new Date(startTime),
-                endTime: new Date(endTime),
-                duration,
-                createdBy: req.user._id,
-                department,
-                batch
-            });
-
-            await quiz.save();
-            
-            res.status(201).json({
-                success: true,
-                message: 'Quiz created successfully',
-                quiz
-            });
-        } catch (err) {
-            console.error('Error creating quiz:', err);
-            res.status(500).json({
-                success: false,
-                message: 'Failed to create quiz',
-                error: err.message
-            });
+  authenticate, 
+  authorize(['staff', 'admin']), 
+  upload.array('questionImages'), 
+  async (req, res) => {
+    try {
+      const { title, description, questions, startTime, endTime, duration, department, batch } = req.body;
+      
+      let parsedQuestions = JSON.parse(questions);
+      
+      const processedQuestions = await Promise.all(parsedQuestions.map(async (q, index) => {
+        const questionData = {
+          questionText: q.questionText,
+          options: q.options,
+          correctAnswer: q.correctAnswer,
+          points: q.points
+        };
+        
+        if (req.files && req.files[index]) {
+          const file = req.files[index];
+          questionData.image = {
+            data: fs.readFileSync(file.path),
+            contentType: file.mimetype
+          };
+          // Clean up the uploaded file
+          fs.unlinkSync(file.path);
         }
+        
+        return questionData;
+      }));
+
+      const quiz = new Quiz({
+        title,
+        description,
+        questions: processedQuestions,
+        startTime: new Date(startTime),
+        endTime: new Date(endTime),
+        duration,
+        createdBy: req.user._id,
+        department,
+        batch
+      });
+
+      await quiz.save();
+      
+      res.status(201).json({
+        success: true,
+        message: 'Quiz created successfully',
+        quiz
+      });
+    } catch (err) {
+      console.error('Error creating quiz:', err);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to create quiz',
+        error: err.message
+      });
     }
+  }
 );
 
     app.get('/api/quizzes', authenticate, authorize(['staff', 'admin']), async (req, res) => {
@@ -726,7 +723,7 @@ app.post('/api/quizzes',
         });
     }
     });
-app.get('/api/quizzes/:quizId/questions/:questionId/image',async (req, res) => {
+app.get('/api/quizzes/:quizId/questions/:questionId/image', async (req, res) => {
   try {
     const quiz = await Quiz.findById(req.params.quizId);
     if (!quiz) return res.status(404).send('Quiz not found');
@@ -787,7 +784,7 @@ app.get('/api/quizzes/:quizId/questions/:questionId/image',async (req, res) => {
                     ...quiz.toObject(),
                     questions: quiz.questions.map(q => ({
                         questionText: q.questionText,
-                        imageUrl: q.imageUrl,
+                        image: q.image,
                         options: q.options,
                         points: q.points
                     }))

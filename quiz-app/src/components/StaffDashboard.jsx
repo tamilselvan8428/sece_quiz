@@ -112,26 +112,25 @@ const StaffDashboard = ({ user, logout }) => {
     setQuestions(newQuestions);
   };
 
-  const handleImageUpload = (e, qIndex) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const newQuestions = [...questions];
-        newQuestions[qIndex].image = file;
-        newQuestions[qIndex].imagePreview = reader.result;
-        setQuestions(newQuestions);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const removeImage = (qIndex) => {
-    const newQuestions = [...questions];
-    newQuestions[qIndex].image = null;
-    newQuestions[qIndex].imagePreview = '';
-    setQuestions(newQuestions);
-  };
+const handleImageUpload = (e, qIndex) => {
+  const file = e.target.files[0];
+  if (file) {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const newQuestions = [...questions];
+      newQuestions[qIndex].image = file;
+      newQuestions[qIndex].imagePreview = reader.result;
+      setQuestions(newQuestions);
+    };
+    reader.readAsDataURL(file);
+  }
+};
+const removeImage = (qIndex) => {
+  const newQuestions = [...questions];
+  newQuestions[qIndex].image = null;
+  newQuestions[qIndex].imagePreview = '';
+  setQuestions(newQuestions);
+};
 
 const handleSubmitQuiz = async (e) => {
     e.preventDefault();
@@ -422,31 +421,31 @@ const handleSubmitQuiz = async (e) => {
                       />
                     </div>
                     
-                    <div className="form-group">
-                      <label>Question Image (optional)</label>
-                      {q.imagePreview ? (
-                        <div className="image-preview-container">
-                          <img 
-                            src={q.imagePreview} 
-                            alt="Question preview" 
-                            className="image-preview"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => removeImage(qIndex)}
-                            className="remove-image-btn"
-                          >
-                            Remove Image
-                          </button>
-                        </div>
-                      ) : (
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => handleImageUpload(e, qIndex)}
-                        />
-                      )}
-                    </div>
+<div className="form-group">
+  <label>Question Image (optional)</label>
+  {q.imagePreview ? (
+    <div className="image-preview-container">
+      <img 
+        src={q.imagePreview} 
+        alt="Question preview" 
+        className="image-preview"
+      />
+      <button
+        type="button"
+        onClick={() => removeImage(qIndex)}
+        className="remove-image-btn"
+      >
+        Remove Image
+      </button>
+    </div>
+  ) : (
+    <input
+      type="file"
+      accept="image/*"
+      onChange={(e) => handleImageUpload(e, qIndex)}
+    />
+  )}
+</div>
                     
                     <div className="options-group">
                       {q.options.map((option, oIndex) => (
