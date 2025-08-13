@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import '../styles/staff.css';
+import EditProfileModal from './EditProfileModal';
 
-const StaffDashboard = ({ user, logout }) => {
+const StaffDashboard = ({ user, logout, updateUser }) => {
   const [quizzes, setQuizzes] = useState([]);
   const [showQuizForm, setShowQuizForm] = useState(false);
   const [quizTitle, setQuizTitle] = useState('');
@@ -25,6 +26,7 @@ const StaffDashboard = ({ user, logout }) => {
   const [results, setResults] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showEditProfile, setShowEditProfile] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -112,27 +114,28 @@ const StaffDashboard = ({ user, logout }) => {
     setQuestions(newQuestions);
   };
 
-const handleImageUpload = (e, qIndex) => {
-  const file = e.target.files[0];
-  if (file) {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const newQuestions = [...questions];
-      newQuestions[qIndex].image = file;
-      newQuestions[qIndex].imagePreview = reader.result;
-      setQuestions(newQuestions);
-    };
-    reader.readAsDataURL(file);
-  }
-};
-const removeImage = (qIndex) => {
-  const newQuestions = [...questions];
-  newQuestions[qIndex].image = null;
-  newQuestions[qIndex].imagePreview = '';
-  setQuestions(newQuestions);
-};
+  const handleImageUpload = (e, qIndex) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const newQuestions = [...questions];
+        newQuestions[qIndex].image = file;
+        newQuestions[qIndex].imagePreview = reader.result;
+        setQuestions(newQuestions);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
-const handleSubmitQuiz = async (e) => {
+  const removeImage = (qIndex) => {
+    const newQuestions = [...questions];
+    newQuestions[qIndex].image = null;
+    newQuestions[qIndex].imagePreview = '';
+    setQuestions(newQuestions);
+  };
+
+  const handleSubmitQuiz = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
@@ -181,7 +184,7 @@ const handleSubmitQuiz = async (e) => {
     } finally {
         setIsLoading(false);
     }
-};
+  };
 
   const resetForm = () => {
     setQuizTitle('');
@@ -244,15 +247,43 @@ const handleSubmitQuiz = async (e) => {
     }
   };
 
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
+
+  const handleProfileUpdate = (updatedUser) => {
+    // Update the user data in the parent component
+    if (typeof updateUser === 'function') {
+      updateUser(updatedUser);
+    }
+  };
+
   return (
     <div className="staff-container">
-      <header className="staff-header">
+      <header className="dashboard-header">
         <h1>Staff Dashboard</h1>
         <div className="user-info">
           <span>Welcome, {user.name}</span>
-          <button onClick={logout}>Logout</button>
+          <div className="header-buttons">
+            <button 
+              onClick={() => setShowEditProfile(true)} 
+              className="edit-profile-button"
+            >
+              Edit Profile
+            </button>
+            <button onClick={handleLogout} className="logout-button">Logout</button>
+          </div>
         </div>
       </header>
+      
+      {showEditProfile && (
+        <EditProfileModal 
+          user={user} 
+          onClose={() => setShowEditProfile(false)}
+          onUpdate={handleProfileUpdate}
+        />
+      )}
 
       <div className="staff-content">
         {error && <div className="error-message">{error}</div>}
@@ -517,12 +548,20 @@ const handleSubmitQuiz = async (e) => {
         {selectedQuiz && (
           <div className="results-overlay">
             <div className="results-container">
-              <h2>Results for {selectedQuiz.title}</h2>
-              <button 
-                onClick={() => setSelectedQuiz(null)}
-                className="close-results-btn"
-              >
-              </button>
+              <div className="results-header">
+                <h2>Results for {selectedQuiz.title}</h2>
+                <button 
+                  onClick={() => setSelectedQuiz(null)}
+                  className="back-button"
+                  title="Back to dashboard"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="19" y1="12" x2="5" y2="12"></line>
+                    <polyline points="12 19 5 12 12 5"></polyline>
+                  </svg>
+                  Back to Dashboard
+                </button>
+              </div>
               
               {results.length > 0 ? (
                 <div className="results-table-container">
@@ -548,7 +587,19 @@ const handleSubmitQuiz = async (e) => {
                   </table>
                 </div>
               ) : (
-                <p className="no-results">No results available for this quiz</p>
+                <div className="no-results-container">
+                  <p className="no-results">No results available for this quiz</p>
+                  <button 
+                    onClick={() => setSelectedQuiz(null)}
+                    className="back-button"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="19" y1="12" x2="5" y2="12"></line>
+                      <polyline points="12 19 5 12 12 5"></polyline>
+                    </svg>
+                    Back to Dashboard
+                  </button>
+                </div>
               )}
             </div>
           </div>

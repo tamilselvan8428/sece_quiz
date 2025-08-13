@@ -2,37 +2,43 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import '../styles/student.css';
+import EditProfileModal from './EditProfileModal';
 
-const StudentDashboard = ({ user, logout }) => {
+const StudentDashboard = ({ user, logout, updateUser }) => {
   const [availableQuizzes, setAvailableQuizzes] = useState([]);
   const [pastResults, setPastResults] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [showEditProfile, setShowEditProfile] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     fetchAvailableQuizzes();
     fetchPastResults();
   }, []);
-const fetchAvailableQuizzes = async () => {
-  try {
-    const res = await axios.get('/api/quizzes/available', {
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-    });
-    
-    console.log('Available quizzes response:', {
-      data: res.data,
-      user: user
-    });
-    
-    setAvailableQuizzes(res.data.quizzes || []);
-  } catch (err) {
-    console.error('Error fetching available quizzes:', {
-      message: err.message,
-      response: err.response?.data,
-      status: err.response?.status
-    });
-    setAvailableQuizzes([]);
-  }
-};
+
+  const fetchAvailableQuizzes = async () => {
+    try {
+      const res = await axios.get('/api/quizzes/available', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      
+      console.log('Available quizzes response:', {
+        data: res.data,
+        user: user
+      });
+      
+      setAvailableQuizzes(res.data.quizzes || []);
+    } catch (err) {
+      console.error('Error fetching available quizzes:', {
+        message: err.message,
+        response: err.response?.data,
+        status: err.response?.status
+      });
+      setAvailableQuizzes([]);
+    }
+  };
+
   const fetchPastResults = async () => {
     try {
       const res = await axios.get('/api/results', {
@@ -43,60 +49,72 @@ const fetchAvailableQuizzes = async () => {
       console.error('Error fetching past results:', err);
     }
   };
-  // Add this new function to your component
-const viewQuizDetails = async (resultId, quizEndTime) => {
-  const now = new Date();
-  const endTime = new Date(quizEndTime);
-  
-  if (now < endTime) {
-    alert('Quiz details will be available after the quiz end time');
-    return;
-  }
-  
-  try {
-    const res = await axios.get(`/api/results/${resultId}/details`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-    });
-    
-    if (res.data.success) {
-      // Navigate to result details page or show modal
-      navigate(`/quiz-result/${resultId}`);
-    }
-  } catch (err) {
-    console.error('Error fetching result details:', err);
-    alert(err.response?.data?.message || 'Failed to load quiz details');
-  }
-};
 
-// In your results table:
-{pastResults.map(result => (
-  <tr key={result._id}>
-    <td>{result.quiz?.title || 'Unknown Quiz'}</td>
-    <td>{result.score}</td>
-    <td>{new Date(result.submittedAt).toLocaleString()}</td>
-    <td>
-      <button 
-        onClick={() => viewQuizDetails(result._id, result.quiz?.endTime)}
-        disabled={new Date() < new Date(result.quiz?.endTime)}
-      >
-        View Details
-      </button>
-    </td>
-  </tr>
-))}
+  const viewQuizDetails = async (resultId, quizEndTime) => {
+    const now = new Date();
+    const endTime = new Date(quizEndTime);
+    
+    if (now < endTime) {
+      alert('Quiz details will be available after the quiz end time');
+      return;
+    }
+    
+    try {
+      const res = await axios.get(`/api/results/${resultId}/details`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      
+      if (res.data.success) {
+        // Navigate to result details page or show modal
+        navigate(`/quiz-result/${resultId}`);
+      }
+    } catch (err) {
+      console.error('Error fetching result details:', err);
+      alert(err.response?.data?.message || 'Failed to load quiz details');
+    }
+  };
+
   const startQuiz = (quizId) => {
     navigate(`/quiz/${quizId}`);
   };
 
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
+
+  const handleProfileUpdate = (updatedUser) => {
+    // Update the user data in the parent component
+    if (typeof updateUser === 'function') {
+      updateUser(updatedUser);
+    }
+  };
+
   return (
     <div className="student-container">
-      <header className="student-header">
+      <header className="dashboard-header">
         <h1>Student Dashboard</h1>
         <div className="user-info">
-          <span>Welcome, {user.name} ({user.rollNumber})</span>
-          <button onClick={logout}>Logout</button>
+          <span>Welcome, {user.name}</span>
+          <div className="header-buttons">
+            <button 
+              onClick={() => setShowEditProfile(true)} 
+              className="edit-profile-button"
+            >
+              Edit Profile
+            </button>
+            <button onClick={handleLogout} className="logout-button">Logout</button>
+          </div>
         </div>
       </header>
+      
+      {showEditProfile && (
+        <EditProfileModal 
+          user={user} 
+          onClose={() => setShowEditProfile(false)}
+          onUpdate={handleProfileUpdate}
+        />
+      )}
 
       <div className="student-content">
         <div className="quizzes-section">

@@ -907,7 +907,7 @@ app.get('/api/quizzes/:quizId/questions/:questionId/image', async (req, res) => 
             }
 
             const results = await QuizResult.find({ quiz: req.params.id })
-                .populate('user', 'name rollNumber department batch');
+                .populate('user', 'name rollNumber department batch section');
 
             const workbook = new ExcelJS.Workbook();
             const worksheet = workbook.addWorksheet('Quiz Results');
@@ -916,6 +916,7 @@ app.get('/api/quizzes/:quizId/questions/:questionId/image', async (req, res) => 
                 { header: 'Roll Number', key: 'rollNumber', width: 15 },
                 { header: 'Name', key: 'name', width: 20 },
                 { header: 'Department', key: 'department', width: 15 },
+                { header: 'Section', key: 'section', width: 10 },
                 { header: 'Batch', key: 'batch', width: 10 },
                 { header: 'Score', key: 'score', width: 10 },
                 { header: 'Submitted At', key: 'submittedAt', width: 20 }
@@ -926,6 +927,7 @@ app.get('/api/quizzes/:quizId/questions/:questionId/image', async (req, res) => 
                     rollNumber: result.user.rollNumber,
                     name: result.user.name,
                     department: result.user.department,
+                    section: result.user.section || 'N/A',
                     batch: result.user.batch,
                     score: result.score,
                     submittedAt: result.submittedAt.toLocaleString()
@@ -1043,76 +1045,136 @@ app.get('/api/quizzes/:quizId/questions/:questionId/image', async (req, res) => 
             });
         }
     });
-    // Profile update route
     app.put('/api/users/profile', authenticate, async (req, res) => {
-    try {
-        const { name, rollNumber, currentPassword, newPassword } = req.body;
-        const user = await User.findById(req.user._id);
-
-        if (!user) {
-        return res.status(404).json({ 
-            success: false, 
-            message: 'User not found' 
-        });
-        }
-
-        // Verify current password if changing password
-        if (newPassword) {
-        const validPassword = await bcrypt.compare(currentPassword, user.password);
-        if (!validPassword) {
-            return res.status(401).json({ 
-            success: false, 
-            message: 'Current password is incorrect' 
-            });
-        }
+        console.log('=== PROFILE UPDATE REQUEST ===');
+        console.log('User ID:', req.user._id);
+        console.log('Request body:', req.body);
+      
+        const session = await mongoose.startSession();
+        session.startTransaction();
         
-        // Update password if new password provided
-        const salt = await bcrypt.genSalt(10);
-        user.password = await bcrypt.hash(newPassword, salt);
+        try {
+          const { name, department, section, batch, newPassword, rollNumber } = req.body;
+          const userId = req.user._id;
+      
+          // Find user
+          const user = await User.findById(userId).session(session);
+          if (!user) {
+            console.error('User not found:', userId);
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(404).json({ 
+              success: false, 
+              message: 'User not found' 
+            });
+          }
+          
+          // Check if rollNumber is being changed and validate it
+          if (rollNumber && rollNumber !== user.rollNumber) {
+            // Check if new roll number already exists
+            const existingUser = await User.findOne({ rollNumber }).session(session);
+            if (existingUser) {
+              await session.abortTransaction();
+              session.endSession();
+              return res.status(409).json({
+                success: false,
+                message: 'Roll number already in use',
+                field: 'rollNumber'
+              });
+            }
+            user.rollNumber = rollNumber;
+          }
+      
+          // Update basic info
+          if (name) user.name = name;
+          if (department) user.department = department;
+          
+          // Only update section and batch for non-staff users
+          if (user.role !== 'staff') {
+            if (section !== undefined) user.section = section;
+            if (batch !== undefined) user.batch = batch;
+          }
+      
+          // Update password if provided
+          if (newPassword && newPassword.trim() !== '') {
+            console.log('Updating password for user:', user.rollNumber);
+            const salt = await bcrypt.genSalt(10);
+            user.password = await bcrypt.hash(newPassword, 10);
+          }
+      
+          // Save changes
+          const updatedUser = await user.save({ session });
+          console.log('User updated successfully:', updatedUser);
+          
+          // Commit the transaction
+          await session.commitTransaction();
+          session.endSession();
+      
+          // Prepare response data
+          const userData = {
+            _id: updatedUser._id,
+            name: updatedUser.name,
+            rollNumber: updatedUser.rollNumber,
+            role: updatedUser.role,
+            department: updatedUser.department,
+            section: updatedUser.section,
+            batch: updatedUser.batch
+          };
+      
+          // Generate new token if password was changed
+          let token;
+          if (newPassword && newPassword.trim() !== '') {
+            token = jwt.sign(
+              { 
+                _id: updatedUser._id, 
+                role: updatedUser.role, 
+                name: updatedUser.name,
+                department: updatedUser.department,
+                batch: updatedUser.batch
+              },
+              process.env.JWT_SECRET || 'quizappsecret',
+              { expiresIn: '1h' }
+            );
+            console.log('New token generated for user:', updatedUser.rollNumber);
+          }
+      
+          const response = {
+            success: true,
+            message: 'Profile updated successfully',
+            user: userData
+          };
+          
+          if (token) {
+            response.token = token;
+          }
+      
+          console.log('Sending response:', response);
+          res.json(response);
+      
+        } catch (err) {
+          console.error('Profile update error:', err);
+          await session.abortTransaction();
+          session.endSession();
+          
+          let statusCode = 500;
+          let errorMessage = 'Failed to update profile';
+          
+          if (err.code === 11000) { // Duplicate key error
+            statusCode = 409;
+            errorMessage = 'Roll number already in use';
+          }
+          
+          const errorResponse = { 
+            success: false, 
+            message: errorMessage,
+            error: err.message,
+            ...(err.code === 11000 && { field: 'rollNumber' })
+          };
+          
+          console.error('Error response:', errorResponse);
+          res.status(statusCode).json(errorResponse);
         }
-
-        // Update user details
-        user.name = name;
-        user.rollNumber = rollNumber;
-
-        await user.save();
-
-        // Generate new token if password changed
-        const token = jwt.sign(
-        { 
-            _id: user._id, 
-            role: user.role, 
-            name: user.name,
-            department: user.department,
-            batch: user.batch
-        },
-        process.env.JWT_SECRET || 'quizappsecret',
-        { expiresIn: '1h' }
-        );
-
-        res.json({
-        success: true,
-        message: 'Profile updated successfully',
-        token: newPassword ? token : undefined, // Return new token only if password changed
-        user: {
-            _id: user._id,
-            name: user.name,
-            rollNumber: user.rollNumber,
-            role: user.role,
-            department: user.department,
-            section: user.section,
-            batch: user.batch
-        }
-        });
-    } catch (err) {
-        console.error('Error updating profile:', err);
-        res.status(500).json({ 
-        success: false, 
-        message: 'Failed to update profile',
-        error: err.message 
-        });
-    }
-    });
+      });
     // Add this with other user management routes
     app.put('/api/users/:id/password', authenticate, authorize(['admin']), async (req, res) => {
         try {

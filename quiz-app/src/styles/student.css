@@ -16,7 +16,28 @@
 .user-info {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 15px;
+}
+
+.header-buttons {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.edit-profile-button {
+  background-color: #4a90e2;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background-color 0.2s;
+}
+
+.edit-profile-button:hover {
+  background-color: #3a7bc8;
 }
 
 .user-info button {

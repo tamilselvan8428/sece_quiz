@@ -29,9 +29,11 @@ const Quiz = () => {
       setTabSwitchCount(newCount);
       
       if (newCount === 1) {
+        // Show warning on first tab switch
         setShowTabSwitchWarning(true);
-        setTimeout(() => setShowTabSwitchWarning(false), 5000);
+        setTimeout(() => setShowTabSwitchWarning(false), 3000);
       } else if (newCount >= 2) {
+        // Auto-submit on second tab switch with current progress
         submitQuiz();
       }
     }

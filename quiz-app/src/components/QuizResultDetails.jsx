@@ -17,23 +17,33 @@ const QuizResultDetails = ({ user }) => {
   const getImageUrl = (question, index) => {
     if (!question) return null;
     
-    // First check for imageUrl (used in results)
+    // Check cache first
+    const cacheKey = `${id}-q${index}`;
+    if (imageCache[cacheKey]) {
+      console.log('Returning from cache:', cacheKey);
+      return imageCache[cacheKey];
+    }
+    
+    // Check for image URL (used in results)
     if (question.imageUrl) {
-      // If it's already a full URL or data URL, return as is
+      // If it's already a full URL or data URL, cache and return it
       if (typeof question.imageUrl === 'string' && 
           (question.imageUrl.startsWith('http') || 
            question.imageUrl.startsWith('data:') ||
            question.imageUrl.startsWith('blob:'))) {
+        setImageCache(prev => ({ ...prev, [cacheKey]: question.imageUrl }));
         return question.imageUrl;
       }
       
       // If it's a base64 string without prefix, add the data URL prefix
       if (typeof question.imageUrl === 'string') {
-        return `data:image/png;base64,${question.imageUrl}`;
+        const dataUrl = `data:image/png;base64,${question.imageUrl}`;
+        setImageCache(prev => ({ ...prev, [cacheKey]: dataUrl }));
+        return dataUrl;
       }
     }
     
-    // Fallback to image data if available
+    // Check for image data if available
     if (question.image) {
       // If it's a Buffer object
       if (question.image.data) {
@@ -45,8 +55,10 @@ const QuizResultDetails = ({ user }) => {
           
           const binary = Array.from(bytes).map(b => String.fromCharCode(b)).join('');
           const base64String = btoa(binary);
+          const dataUrl = `data:${question.image.contentType || 'image/png'};base64,${base64String}`;
           
-          return `data:${question.image.contentType || 'image/png'};base64,${base64String}`;
+          setImageCache(prev => ({ ...prev, [cacheKey]: dataUrl }));
+          return dataUrl;
         } catch (err) {
           console.error('Error processing image buffer:', err);
         }
@@ -54,14 +66,9 @@ const QuizResultDetails = ({ user }) => {
       
       // If it's a direct URL string
       if (typeof question.image === 'string') {
+        setImageCache(prev => ({ ...prev, [cacheKey]: question.image }));
         return question.image;
       }
-    }
-    
-    // Check cache if we have a processed image
-    const cacheKey = `${id}-q${index}`;
-    if (imageCache[cacheKey]) {
-      return imageCache[cacheKey];
     }
     
     return null;
@@ -331,12 +338,44 @@ const QuizResultDetails = ({ user }) => {
                   
                   {!isCorrect && (
                     <div className="feedback">
-                      <p className="correct-answer-text">
-                        <strong>Correct answer:</strong> {String.fromCharCode(65 + question.correctAnswer)}. {question.options[question.correctAnswer]}
-                      </p>
+                      <div className="correct-answer-container">
+                        <div className="correct-answer-text">
+                          <div className="correct-answer-header">
+                            <span className="correct-answer-label">Correct answer:</span>
+                            <span className="correct-answer-option">
+                              {String.fromCharCode(65 + question.correctAnswer)}. {question.options[question.correctAnswer]}
+                            </span>
+                          </div>
+                          
+                          {/* Enhanced question image display with correct answer */}
+                          {(() => {
+                            const imageUrl = getImageUrl(question, index);
+                            if (!imageUrl) return null;
+                            
+                            return (
+                              <div className="correct-answer-image-container">
+                                <img 
+                                  src={imageUrl}
+                                  alt="Question for correct answer" 
+                                  className="correct-answer-image"
+                                  onError={(e) => {
+                                    console.error('Error loading feedback image:', e);
+                                    e.target.style.display = 'none';
+                                  }}
+                                />
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                      
                       {question.explanation && (
                         <div className="explanation">
-                          <strong>Explanation:</strong> {question.explanation}
+                          <div className="explanation-header">
+                            <span className="explanation-icon">💡</span>
+                            <strong>Explanation</strong>
+                          </div>
+                          <p className="explanation-text">{question.explanation}</p>
                         </div>
                       )}
                     </div>
