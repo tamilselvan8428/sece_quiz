@@ -359,61 +359,34 @@ app.post('/api/users/approve', authenticate, authorize(['admin']), async (req, r
         res.status(500).json({ 
             success: false, 
             message: 'Server error while approving users',
-            error: err.message
-        });
-    }
 });
 
-// Delete a user (soft delete)
-app.delete('/api/users/:id', authenticate, authorize(['admin']), async (req, res) => {
-    try {
-        const userId = req.params.id;
-        
-        if (!mongoose.Types.ObjectId.isValid(userId)) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Invalid user ID format' 
-            });
-        }
+// User Management Routes
+app.get('/api/users/pending', authenticate, authorize(['admin']), async (req, res) => {
+try {
+const { role, department, section, batch, search } = req.query;
+const query = { isApproved: false };
+if (role) query.role = role;
+if (department) query.department = new RegExp(department, 'i');
+if (section) query.section = new RegExp(section, 'i');
+if (batch) query.batch = new RegExp(batch, 'i');
+if (search) {
+query.$or = [
+{ name: new RegExp(search, 'i') },
+{ rollNumber: new RegExp(search, 'i') }
+];
+}
 
-        const user = await User.findById(userId);
-        if (!user) {
-            return res.status(404).json({ 
-                success: false, 
-                message: 'User not found' 
-            });
-        }
-
-        // Move to deleted users collection
-        const deletedUser = new DeletedUser(user.toObject());
-        await deletedUser.save();
-        
-        // Remove from active users
-        await User.findByIdAndDelete(userId);
-
-        res.json({ 
-            success: true, 
-            message: 'User deleted successfully',
-            deletedUser: {
-                id: deletedUser._id,
-                name: deletedUser.name,
-                rollNumber: deletedUser.rollNumber
-            }
-        });
-    } catch (err) {
-        console.error('Error in DELETE /api/users/:id:', err);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Server error while deleting user',
-            error: err.message 
-        });
-    }
+const users = await User.find(query);
+res.json({ success: true, users });
+} catch (err) {
+console.error('Error in /api/users/pending:', err);
+res.status(500).json({ 
+success: false, 
+message: 'Server error while fetching pending users',
+error: err.message 
 });
-
-// Permanently delete a user from deleted users collection
-app.delete('/api/users/permanent/:id', authenticate, authorize(['admin']), async (req, res) => {
-    try {
-        const userId = req.params.id;
+}
         
         if (!mongoose.Types.ObjectId.isValid(userId)) {
             return res.status(400).json({ 
@@ -450,184 +423,65 @@ app.delete('/api/users/permanent/:id', authenticate, authorize(['admin']), async
 });
 
 app.post('/api/users/restore/:id', authenticate, authorize(['admin']), async (req, res) => {
-    const session = await mongoose.startSession();
     try {
-        await session.startTransaction();
         const userId = req.params.id;
-
-        // Validate ID format
+        
         if (!mongoose.Types.ObjectId.isValid(userId)) {
-            await session.abortTransaction();
             return res.status(400).json({ 
                 success: false, 
                 message: 'Invalid user ID format' 
             });
         }
 
-        // Find the deleted user record
-        const deletedUser = await DeletedUser.findById(userId).session(session);
+        const deletedUser = await DeletedUser.findById(userId);
         if (!deletedUser) {
-            await session.abortTransaction();
             return res.status(404).json({ 
                 success: false, 
                 message: 'Deleted user record not found' 
             });
         }
 
-        // Check for any existing user (active or soft-deleted) with same roll number
-        const existingUser = await User.findOne({ 
-            rollNumber: deletedUser.rollNumber 
-        }).session(session);
-
+        const existingUser = await User.findOne({ rollNumber: deletedUser.rollNumber });
         if (existingUser) {
-            await session.abortTransaction();
-            
-            const responseData = {
-                success: false,
-                message: `User with roll number ${deletedUser.rollNumber} already exists`,
-                errorType: 'ROLL_NUMBER_CONFLICT',
-                conflictDetails: {
-                    deletedUserId: deletedUser._id,
-                    deletedUserName: deletedUser.name,
-                    existingUserId: existingUser._id,
-                    existingUserName: existingUser.name,
-                    rollNumber: deletedUser.rollNumber,
-                    status: existingUser.isDeleted ? 'soft-deleted' : 'active'
-                }
-            };
-
-            return res.status(409).json(responseData);
+            return res.status(409).json({ 
+                success: false, 
+                message: 'User with this roll number already exists' 
+            });
         }
-
-        // Check if new roll number was provided in request
-        const newRollNumber = req.body.newRollNumber;
-        if (newRollNumber) {
-            // Validate new roll number format if needed
-            const userWithNewRoll = await User.findOne({ 
-                rollNumber: newRollNumber 
-            }).session(session);
-            
-            if (userWithNewRoll) {
-                await session.abortTransaction();
-                return res.status(409).json({
-                    success: false,
-                    message: `The new roll number ${newRollNumber} is already in use`
-                });
-            }
-        }
-
-        // Create new user with temporary password
-        const tempPassword = `restored-${Date.now()}`;
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(tempPassword, salt);
 
         const restoredUser = new User({
             name: deletedUser.name,
-            rollNumber: newRollNumber || deletedUser.rollNumber,
+            rollNumber: deletedUser.rollNumber,
             role: deletedUser.role,
             department: deletedUser.department,
             section: deletedUser.section,
             batch: deletedUser.batch,
             isApproved: true,
-            password: hashedPassword
+            password: await bcrypt.hash(`restored-${Date.now()}`, 10)
         });
 
-        await restoredUser.save({ session });
-        await DeletedUser.findByIdAndDelete(userId).session(session);
-        await session.commitTransaction();
+        await restoredUser.save();
+        await DeletedUser.findByIdAndDelete(userId);
 
-        return res.json({ 
+        res.json({ 
             success: true, 
             message: 'User restored successfully',
             user: {
                 id: restoredUser._id,
                 name: restoredUser.name,
-                rollNumber: restoredUser.rollNumber,
-                tempPassword: tempPassword // For admin reference only
+                rollNumber: restoredUser.rollNumber
             }
         });
-
     } catch (err) {
-        await session.abortTransaction();
-        console.error('Error during user restoration:', err);
-        
-        return res.status(500).json({ 
+        console.error('Error in POST /api/users/restore/:id:', err);
+        res.status(500).json({ 
             success: false, 
             message: 'Server error while restoring user',
-            error: process.env.NODE_ENV === 'development' ? err.message : undefined
-        });
-    } finally {
-        session.endSession();
-    }
-});
-
-// New endpoint to find hidden users
-app.get('/api/users/search-hidden', authenticate, authorize(['admin']), async (req, res) => {
-    try {
-        const { rollNumber } = req.query;
-        
-        if (!rollNumber) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Roll number is required' 
-            });
-        }
-
-        const users = await User.find({
-            rollNumber: new RegExp(rollNumber, 'i'),
-            $or: [
-                { isDeleted: true },
-                { isApproved: false }
-            ]
-        }).select('name rollNumber role department isDeleted isApproved');
-
-        res.json({ 
-            success: true, 
-            users 
-        });
-    } catch (err) {
-        console.error('Error searching hidden users:', err);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Failed to search hidden users',
             error: err.message 
         });
     }
 });
 
-// New endpoint to find hidden users
-app.get('/api/users/search-hidden', authenticate, authorize(['admin']), async (req, res) => {
-    try {
-        const { rollNumber } = req.query;
-        
-        if (!rollNumber) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Roll number is required' 
-            });
-        }
-
-        const users = await User.find({
-            rollNumber: new RegExp(rollNumber, 'i'),
-            $or: [
-                { isDeleted: true },
-                { isApproved: false }
-            ]
-        }).select('name rollNumber role department isDeleted isApproved');
-
-        res.json({ 
-            success: true, 
-            users 
-        });
-    } catch (err) {
-        console.error('Error searching hidden users:', err);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Failed to search hidden users',
-            error: err.message 
-        });
-    }
-});
 // Auth Routes
 app.post('/api/register', async (req, res) => {
     try {
@@ -907,46 +761,6 @@ try {
 }
 });
 
-// Delete a quiz
-app.delete('/api/quizzes/:id', authenticate, authorize(['staff', 'admin']), async (req, res) => {
-    try {
-        const quiz = await Quiz.findById(req.params.id);
-        
-        if (!quiz) {
-            return res.status(404).json({
-                success: false,
-                message: 'Quiz not found'
-            });
-        }
-
-        // Check if the user is the creator of the quiz or an admin
-        if (req.user.role !== 'admin' && quiz.createdBy.toString() !== req.user._id) {
-            return res.status(403).json({
-                success: false,
-                message: 'Not authorized to delete this quiz'
-            });
-        }
-
-        await Quiz.findByIdAndDelete(req.params.id);
-        
-        // Also delete all results associated with this quiz
-        await QuizResult.deleteMany({ quiz: req.params.id });
-
-        res.json({
-            success: true,
-            message: 'Quiz deleted successfully'
-        });
-    } catch (err) {
-        console.error('Error deleting quiz:', err);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to delete quiz',
-            error: err.message
-        });
-    }
-});
-
-// Get quiz by ID
 app.get('/api/quizzes/:id', authenticate, async (req, res) => {
     try {
         const quiz = await Quiz.findById(req.params.id).populate('createdBy', 'name');

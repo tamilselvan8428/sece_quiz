@@ -38,6 +38,7 @@ const AdminPanel = ({ user, logout }) => {
     newPassword: '',
     confirmPassword: ''
   });
+  const [conflictResolutionData, setConflictResolutionData] = useState(null);
 
   const navigate = useNavigate();
 
@@ -207,48 +208,160 @@ const AdminPanel = ({ user, logout }) => {
       setIsLoading(prev => ({ ...prev, action: false }));
     }
   };
-
   const handleRestore = async () => {
     if (selectedDeleted.length === 0) return;
     
     setIsLoading(prev => ({ ...prev, action: true }));
+    setMessage({ text: '', type: '' });
+    setConflictResolutionData(null); // Reset any previous conflict data
+    
     try {
-      const results = await Promise.allSettled(
-        selectedDeleted.map(id =>
-          axios.post(`/api/users/restore/${id}`, {}, {
-            headers: { 
-              Authorization: `Bearer ${localStorage.getItem('token')}`,
-              'Content-Type': 'application/json'
-            }
-          })
-        )
-      );
+        const results = await Promise.allSettled(
+            selectedDeleted.map(id =>
+                axios.post(`/api/users/restore/${id}`, {}, {
+                    headers: { 
+                        Authorization: `Bearer ${localStorage.getItem('token')}`,
+                        'Content-Type': 'application/json'
+                    }
+                }).catch(error => {
+                    // Enhance error with detailed conflict information
+                    if (error.response?.data?.errorType === 'ROLL_NUMBER_CONFLICT') {
+                        return Promise.reject({
+                            isConflictError: true,
+                            failedId: id,
+                            conflictData: error.response.data.conflictDetails,
+                            status: 'conflict'
+                        });
+                    }
+                    return Promise.reject({
+                        isGenericError: true,
+                        failedId: id,
+                        message: error.response?.data?.message || error.message,
+                        status: 'error'
+                    });
+                })
+            )
+        );
 
-      const failedRestores = results.filter(r => r.status === 'rejected');
-      if (failedRestores.length > 0) {
-        const errorMessages = failedRestores.map(f => {
-          if (f.reason.response) {
-            return f.reason.response.data?.message || f.reason.message;
-          }
-          return f.reason.message;
-        }).join(', ');
-        
-        throw new Error(`Some restores failed: ${errorMessages}`);
-      }
+        // Process results
+        const successfulRestores = results.filter(r => r.status === 'fulfilled');
+        const failedRestores = results.filter(r => r.status === 'rejected');
+        const conflictErrors = failedRestores.filter(f => f.reason.isConflictError);
+        const otherErrors = failedRestores.filter(f => !f.reason.isConflictError);
 
-      setMessage({
-        text: `${selectedDeleted.length} user(s) restored successfully`,
-        type: 'success'
-      });
-      fetchDeletedUsers();
-      fetchActiveUsers();
-      setSelectedDeleted([]);
+        // Handle successful restores
+        if (successfulRestores.length > 0) {
+            setMessage(prev => ({
+                text: `${prev.text ? prev.text + '\n' : ''}✅ Successfully restored ${successfulRestores.length} user(s)`,
+                type: 'success'
+            }));
+            setSelectedDeleted(prev => prev.filter(id => 
+                !successfulRestores.some(r => r.value.data.user?.id === id)
+            ));
+        }
+
+        // Handle conflict errors
+        if (conflictErrors.length > 0) {
+            setConflictResolutionData({
+                conflicts: conflictErrors.map(f => ({
+                    deletedUserId: f.reason.conflictData.deletedUserId,
+                    deletedUserName: f.reason.conflictData.deletedUserName,
+                    existingUserId: f.reason.conflictData.existingUserId,
+                    existingUserName: f.reason.conflictData.existingUserName,
+                    rollNumber: f.reason.conflictData.rollNumber,
+                    status: f.reason.conflictData.status
+                })),
+                remainingIds: selectedDeleted.filter(id => 
+                    !successfulRestores.some(r => r.value.data.user?.id === id)
+                )
+            });
+
+            setMessage(prev => ({
+                text: `${prev.text ? prev.text + '\n' : ''}⚠️ ${conflictErrors.length} conflict(s) detected`,
+                type: 'warning'
+            }));
+        }
+
+        // Handle other errors
+        if (otherErrors.length > 0) {
+            const errorMessages = otherErrors.map(f => 
+                `❌ Failed to restore user ${f.reason.failedId}: ${f.reason.message}`
+            );
+
+            setMessage(prev => ({
+                text: `${prev.text ? prev.text + '\n' : ''}${errorMessages.join('\n')}`,
+                type: prev.type === 'success' ? 'warning' : 'error'
+            }));
+        }
+
+        // Refresh data
+        await Promise.all([fetchDeletedUsers(), fetchActiveUsers()]);
+
     } catch (err) {
-      handleApiError(err, err.message || 'Failed to restore users');
+        console.error('Restore process error:', err);
+        setMessage({
+            text: `⛔ Critical error during restore process: ${err.message}`,
+            type: 'error'
+        });
     } finally {
-      setIsLoading(prev => ({ ...prev, action: false }));
+        setIsLoading(prev => ({ ...prev, action: false }));
     }
-  };
+};
+
+// Conflict resolution handler
+const handleResolveConflict = async (action, conflict) => {
+    if (!action || !conflict) return;
+    
+    setIsLoading(prev => ({ ...prev, conflictResolution: true }));
+    
+    try {
+        let response;
+        
+        if (action === 'change-roll') {
+            const newRollNumber = prompt(`Enter new roll number for ${conflict.deletedUserName}:`);
+            if (!newRollNumber) return;
+
+            response = await axios.post(
+                `/api/users/restore/${conflict.deletedUserId}`, 
+                { newRollNumber },
+                { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+            );
+        } 
+        else if (action === 'delete-conflict') {
+            if (!confirm(`Are you sure you want to delete ${conflict.existingUserName} (${conflict.rollNumber})?`)) return;
+            
+            response = await axios.delete(
+                `/api/users/${conflict.existingUserId}`,
+                { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+            );
+        }
+
+        if (response?.data.success) {
+            setMessage({
+                text: `✅ Conflict resolved - ${action === 'change-roll' ? 
+                    'User restored with new roll number' : 'Conflicting user deleted'}`,
+                type: 'success'
+            });
+            
+            // Refresh data and retry remaining restores
+            await Promise.all([fetchDeletedUsers(), fetchActiveUsers()]);
+            
+            if (conflictResolutionData.remainingIds.length > 0) {
+                setTimeout(() => handleRestore(), 1000);
+            }
+        }
+
+        setConflictResolutionData(null);
+        
+    } catch (err) {
+        setMessage({
+            text: `⚠️ Failed to resolve conflict: ${err.response?.data?.message || err.message}`,
+            type: 'error'
+        });
+    } finally {
+        setIsLoading(prev => ({ ...prev, conflictResolution: false }));
+    }
+};
 
   const handlePermanentDelete = async () => {
     if (selectedDeleted.length === 0) return;
