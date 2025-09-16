@@ -20,6 +20,7 @@ const Login = ({ login }) => {
 
   return (
     <div className="login-container">
+      <img src="/logo.webp" alt="Logo" className="login-logo" />
       <div className="login-box">
         <h2>Login</h2>
         {message && <div className="alert">{message}</div>}
